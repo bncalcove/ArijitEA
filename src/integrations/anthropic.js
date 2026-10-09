@@ -59,6 +59,9 @@ export async function callJSON({ system, user, schema, effort = 'medium', maxTok
 
 // ---------- Anthropic API ----------
 let client;
+/** Call after ANTHROPIC_API_KEY changes on the dashboard. */
+export function resetAnthropic() { client = undefined; }
+
 async function callApi({ system, user, schema, effort, maxTokens }) {
   client ??= new Anthropic();
   const res = await client.beta.messages.create({

@@ -4,7 +4,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DATA_DIR = path.join(ROOT, 'data');
+// DATA_DIR env, else /data if the host mounted a persistent volume there, else ./data.
+function pickDataDir() {
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+  try {
+    fs.accessSync('/data', fs.constants.W_OK);
+    return '/data';
+  } catch { return path.join(ROOT, 'data'); }
+}
+export const DATA_DIR = pickDataDir();
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 export const db = new DatabaseSync(path.join(DATA_DIR, 'ea.db'));
@@ -131,6 +139,14 @@ const MIGRATIONS = [
     last_error TEXT
   );
   `,
+  `
+  -- Keys entered on the dashboard (Settings → Connections) and app-generated secrets.
+  -- Kept apart from settings so GET /api/settings can never return them.
+  CREATE TABLE secrets (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
 
 function migrate() {
@@ -248,6 +264,7 @@ export function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
   const s = structuredClone(DEFAULT_SETTINGS);
   for (const r of rows) {
+    if (r.key === 'roles' || r.key === 'projects') continue; // read via readRoles()/readProjects()
     try { s[r.key] = JSON.parse(r.value); } catch { /* ignore bad row */ }
   }
   return s;
@@ -262,17 +279,28 @@ export function putSettings(patch) {
 const ROLES_PATH = path.join(ROOT, 'config', 'roles.json');
 const PROJECTS_PATH = path.join(ROOT, 'config', 'projects.json');
 
+// Edits made on the dashboard live in the DB, so a git redeploy doesn't overwrite them.
+// The files in config/ are the defaults until the first dashboard edit.
+const storedSetting = key => {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? JSON.parse(row.value) : null;
+};
+
 export function readRoles() {
-  return JSON.parse(fs.readFileSync(ROLES_PATH, 'utf8'));
+  return storedSetting('roles') || JSON.parse(fs.readFileSync(ROLES_PATH, 'utf8'));
 }
 
 export function writeRoles(roles) {
-  fs.writeFileSync(ROLES_PATH, JSON.stringify(roles, null, 2) + '\n');
+  putSettings({ roles });
   seedPeople();
 }
 
 export function readProjects() {
-  return JSON.parse(fs.readFileSync(PROJECTS_PATH, 'utf8')).projects.map(p => p.tag);
+  return storedSetting('projects') || JSON.parse(fs.readFileSync(PROJECTS_PATH, 'utf8')).projects.map(p => p.tag);
+}
+
+export function writeProjects(tags) {
+  putSettings({ projects: tags });
 }
 
 export function seedPeople() {

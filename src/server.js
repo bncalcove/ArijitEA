@@ -3,20 +3,19 @@ import express from 'express';
 import session from 'express-session';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { ROOT } from './db.js';
+import { ROOT, DATA_DIR } from './db.js';
+import {
+  sessionSecret, passwordConfigured, verifyPassword, setPassword, setupCodeFor, consumeSetupCode, saveSecrets,
+} from './config.js';
 import tasksRoutes from './routes/tasks.js';
 import inboxRoutes from './routes/inbox.js';
 import meetingsRoutes from './routes/meetings.js';
 import settingsRoutes from './routes/settings.js';
 import { start as startScheduler, runJob, MANUAL_SOURCES } from './jobs/scheduler.js';
-import { oauthClient, GOOGLE_SCOPES, googleEnabled } from './integrations/google.js';
+import { oauthClient, GOOGLE_SCOPES, googleEnabled, resetGoogle } from './integrations/google.js';
 import { aiProvider } from './integrations/anthropic.js';
 
-const { PORT = 3000, DASHBOARD_PASSWORD, SESSION_SECRET } = process.env;
-if (!DASHBOARD_PASSWORD || !SESSION_SECRET) {
-  console.error('Set DASHBOARD_PASSWORD and SESSION_SECRET in .env (see .env.example).');
-  process.exit(1);
-}
+const PORT = process.env.PORT || 3000;
 
 const app = express();
 app.set('trust proxy', 1); // behind HTTPS reverse proxy / VPN
@@ -25,7 +24,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use(session({
   name: 'ea.sid',
-  secret: SESSION_SECRET,
+  secret: sessionSecret(),
   resave: false,
   saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: 'lax', secure: 'auto', maxAge: 14 * 864e5 },
@@ -35,38 +34,64 @@ app.use((req, res, next) => {
   next();
 });
 
+// Unauthenticated liveness probe for the deploy system.
+app.get('/healthz', (req, res) => res.type('text').send('ok'));
+
 // ---- auth ----
 const attempts = new Map(); // ip -> {count, until}
-function safeEqual(a, b) {
-  const ha = crypto.createHash('sha256').update(String(a)).digest();
-  const hb = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(ha, hb);
+function throttled(ip) {
+  const a = attempts.get(ip);
+  return a && a.until > Date.now();
 }
-
-const loginPage = (error = '') => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EA — Sign in</title><style>
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1f3d;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
-form{background:#fff;padding:32px;border-radius:12px;width:min(340px,90vw);box-shadow:0 10px 40px #0004}
-h1{margin:0 0 4px;font-size:20px;color:#0f1f3d}p{margin:0 0 20px;color:#667;font-size:14px}
-input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #ccd;border-radius:8px;font-size:15px}
-button{margin-top:14px;width:100%;padding:10px;border:0;border-radius:8px;background:#c9a227;color:#0f1f3d;font-weight:600;font-size:15px;cursor:pointer}
-.err{color:#c0392b;font-size:13px;margin-top:10px}</style></head><body>
-<form method="post" action="/login"><h1>Ari's EA</h1><p>Enter the dashboard password</p>
-<input type="password" name="password" autofocus autocomplete="current-password" required>
-<button type="submit">Sign in</button>${error ? `<div class="err">${error}</div>` : ''}</form></body></html>`;
-
-app.get('/login', (req, res) => res.send(loginPage()));
-app.post('/login', (req, res) => {
-  const ip = req.ip;
+function recordFailure(ip) {
   const a = attempts.get(ip) || { count: 0, until: 0 };
-  if (a.until > Date.now()) return res.status(429).send(loginPage('Too many attempts. Try again in 15 minutes.'));
-  if (safeEqual(req.body.password || '', DASHBOARD_PASSWORD)) {
-    attempts.delete(ip);
-    return req.session.regenerate(() => { req.session.authed = true; res.redirect('/'); });
-  }
   a.count += 1;
   if (a.count >= 5) { a.until = Date.now() + 15 * 60e3; a.count = 0; }
   attempts.set(ip, a);
+}
+
+const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EA — ${title}</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1f3d;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+form{background:#fff;padding:32px;border-radius:12px;width:min(360px,90vw);box-shadow:0 10px 40px #0004}
+h1{margin:0 0 4px;font-size:20px;color:#0f1f3d}p{margin:0 0 18px;color:#667;font-size:14px}
+label{display:block;font-size:12px;font-weight:600;color:#667;margin:12px 0 4px}
+input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #ccd;border-radius:8px;font-size:15px}
+button{margin-top:16px;width:100%;padding:10px;border:0;border-radius:8px;background:#c9a227;color:#0f1f3d;font-weight:600;font-size:15px;cursor:pointer}
+.err{color:#c0392b;font-size:13px;margin-top:10px}</style></head><body>${body}</body></html>`;
+
+const loginPage = (error = '') => page('Sign in', `<form method="post" action="/login"><h1>Ari's EA</h1><p>Enter the dashboard password</p>
+<input type="password" name="password" autofocus autocomplete="current-password" required>
+<button type="submit">Sign in</button>${error ? `<div class="err">${error}</div>` : ''}</form>`);
+
+const setupPage = (error = '') => page('Set up', `<form method="post" action="/setup"><h1>Set up Ari's EA</h1>
+<p>Choose the dashboard password. The setup code is printed in the server / deploy log.</p>
+<label>Setup code</label><input name="code" autocomplete="off" required autofocus>
+<label>New password (8+ characters)</label><input type="password" name="password" minlength="8" autocomplete="new-password" required>
+<label>Confirm password</label><input type="password" name="confirm" minlength="8" autocomplete="new-password" required>
+<button type="submit">Save and sign in</button>${error ? `<div class="err">${error}</div>` : ''}</form>`);
+
+function login(req, res) {
+  req.session.regenerate(() => { req.session.authed = true; res.redirect('/'); });
+}
+
+app.get('/setup', (req, res) => (passwordConfigured() ? res.redirect('/login') : res.send(setupPage())));
+app.post('/setup', (req, res) => {
+  if (passwordConfigured()) return res.redirect('/login');
+  if (throttled(req.ip)) return res.status(429).send(setupPage('Too many attempts. Try again in 15 minutes.'));
+  const { code, password, confirm } = req.body || {};
+  if (password !== confirm) return res.status(400).send(setupPage('Passwords do not match.'));
+  if (!consumeSetupCode(code)) { recordFailure(req.ip); return res.status(401).send(setupPage('Wrong setup code — check the server log.')); }
+  try { setPassword(password); } catch (e) { return res.status(400).send(setupPage(e.message)); }
+  login(req, res);
+});
+
+app.get('/login', (req, res) => (passwordConfigured() ? res.send(loginPage()) : res.redirect('/setup')));
+app.post('/login', (req, res) => {
+  if (!passwordConfigured()) return res.redirect('/setup');
+  if (throttled(req.ip)) return res.status(429).send(loginPage('Too many attempts. Try again in 15 minutes.'));
+  if (verifyPassword(req.body?.password || '')) { attempts.delete(req.ip); return login(req, res); }
+  recordFailure(req.ip);
   res.status(401).send(loginPage('Wrong password.'));
 });
 app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
@@ -74,21 +99,33 @@ app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/login
 app.use((req, res, next) => {
   if (req.session.authed) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Login required' });
-  res.redirect('/login');
+  res.redirect(passwordConfigured() ? '/login' : '/setup');
 });
 
-// ---- Google OAuth helper: visit /auth/google once to get GOOGLE_REFRESH_TOKEN ----
+// ---- Google OAuth: Settings → Connections → "Connect Google" ----
+const redirectUri = req => process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}/oauth2callback`;
+
 app.get('/auth/google', (req, res) => {
-  if (!process.env.GOOGLE_CLIENT_ID) return res.status(400).send('Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI first.');
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.status(400).send('Add the Google client ID and secret in Settings → Connections first.');
+  }
   req.session.oauthState = crypto.randomBytes(16).toString('hex');
-  res.redirect(oauthClient().generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: GOOGLE_SCOPES, state: req.session.oauthState }));
+  req.session.oauthRedirect = redirectUri(req);
+  res.redirect(oauthClient(req.session.oauthRedirect).generateAuthUrl({
+    access_type: 'offline', prompt: 'consent', scope: GOOGLE_SCOPES, state: req.session.oauthState,
+  }));
 });
 app.get('/oauth2callback', async (req, res) => {
   if (!req.query.code || req.query.state !== req.session.oauthState) return res.status(400).send('Invalid OAuth response.');
   try {
-    const { tokens } = await oauthClient().getToken(req.query.code);
-    res.type('html').send(`<p>Copy this into <code>.env</code> as <b>GOOGLE_REFRESH_TOKEN</b>, then restart the server:</p>
-      <textarea rows="4" cols="90" readonly>${tokens.refresh_token || '(no refresh token returned — revoke access at myaccount.google.com/permissions and retry)'}</textarea>`);
+    const { tokens } = await oauthClient(req.session.oauthRedirect).getToken(req.query.code);
+    if (!tokens.refresh_token) {
+      return res.status(400).send('Google returned no refresh token. Remove access at myaccount.google.com/permissions and connect again.');
+    }
+    saveSecrets({ GOOGLE_REFRESH_TOKEN: tokens.refresh_token, GOOGLE_REDIRECT_URI: req.session.oauthRedirect });
+    resetGoogle();
+    runJob(...MANUAL_SOURCES.calendar).then(() => runJob(...MANUAL_SOURCES.gmail));
+    res.redirect('/?connected=google');
   } catch (e) {
     res.status(500).send(`OAuth failed: ${e.message}`);
   }
@@ -113,7 +150,14 @@ app.use((err, req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`EA dashboard on http://localhost:${PORT}  (AI: ${aiProvider()}, Google: ${googleEnabled() ? 'on' : 'OFF'}, WhatsApp: ${process.env.WHATSAPP_ENDPOINT ? 'on' : 'dry-run'})`);
+  console.log(`EA dashboard listening on port ${PORT}  (AI: ${aiProvider()}, Google: ${googleEnabled() ? 'on' : 'OFF'}, WhatsApp: ${process.env.WHATSAPP_ENDPOINT ? 'on' : 'dry-run'}, data: ${DATA_DIR})`);
+  const code = setupCodeFor();
+  if (code) {
+    console.log('================================================================');
+    console.log(`  FIRST-RUN SETUP: open the dashboard and enter setup code ${code}`);
+    console.log('  to choose the dashboard password. (A new code is shown on each restart.)');
+    console.log('================================================================');
+  }
   if (process.env.NO_SCHEDULER !== '1') {
     startScheduler();
     runJob(...MANUAL_SOURCES.calendar).then(() => runJob(...MANUAL_SOURCES.gmail));

@@ -149,6 +149,14 @@ td select.status { border: 1px solid var(--line); border-radius: 6px; padding: 2
 .tag { background: var(--blue-soft); color: var(--blue); border-radius: 999px; padding: 2px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 .tag button { border: 0; background: none; cursor: pointer; color: inherit; padding: 0; line-height: 1; }
 
+.set-h { margin: 10px 0 0; font-size: 14px; color: var(--navy); border-top: 1px solid var(--line); padding-top: 14px; }
+.conn { display: grid; grid-template-columns: 190px 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+.conn label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.conn input { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; width: 100%; }
+.conn .state { font-size: 11px; white-space: nowrap; }
+code { background: #eef0f4; padding: 1px 5px; border-radius: 4px; font-size: 12px; word-break: break-all; }
+@media (max-width: 640px) { .conn { grid-template-columns: 1fr; } }
+
 /* toast */
 .toasts { position: fixed; bottom: 20px; right: 20px; display: grid; gap: 8px; z-index: 60; }
 .toast { background: var(--navy); color: #fff; padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 20px #0004; max-width: 380px; }
@@ -285,7 +293,19 @@ td select.status { border: 1px solid var(--line); border-radius: 6px; padding: 2
       <div class="field"><label>Sender blocklist (one per line, matched against name/email)</label><textarea name="sender_blocklist"></textarea></div>
       <div class="field"><label>Key-meeting keywords (one per line; meetings with outside attendees are always key)</label><textarea name="key_meeting_keywords"></textarea></div>
       <div class="field"><label>Projects (one per line)</label><textarea name="projects"></textarea></div>
-      <div class="field"><label>Roles (config/roles.json)</label><textarea name="roles" style="min-height:220px;font-family:ui-monospace,Consolas,monospace;font-size:12px"></textarea></div>
+      <div class="field"><label>Roles (Ari, company domains, team)</label><textarea name="roles" style="min-height:220px;font-family:ui-monospace,Consolas,monospace;font-size:12px"></textarea></div>
+
+      <h4 class="set-h">Connections</h4>
+      <div class="hint" style="margin-top:-6px">Keys are stored in the app database, not in git. Leave a field blank to keep its current value. <span id="ai-provider"></span></div>
+      <div id="connections"></div>
+      <div class="hint">Google: create an OAuth client of type <b>Web application</b> in Google Cloud Console, with redirect URI <code id="redirect-uri"></code>. Save the client ID and secret here, then
+        <a href="/auth/google" class="btn sm gold" id="google-connect">Connect Google</a></div>
+
+      <h4 class="set-h">Change password</h4>
+      <div class="row2">
+        <div class="field"><label>Current password</label><input type="password" name="pw_current" autocomplete="current-password"></div>
+        <div class="field"><label>New password (8+ characters)</label><input type="password" name="pw_next" autocomplete="new-password"></div>
+      </div>
     </div>
     <footer>
       <button type="button" class="btn" id="logout-btn" style="margin-right:auto">Log out</button>
@@ -651,8 +671,40 @@ $('#notes-form').onsubmit = async e => {
 };
 
 // Settings
+const CONN_LABELS = {
+  ANTHROPIC_API_KEY: 'Anthropic API key (optional)',
+  GOOGLE_CLIENT_ID: 'Google client ID', GOOGLE_CLIENT_SECRET: 'Google client secret',
+  GOOGLE_REDIRECT_URI: 'Google redirect URI (optional)', GOOGLE_REFRESH_TOKEN: 'Google refresh token (auto)',
+  WHATSAPP_ENDPOINT: 'WhatsApp endpoint URL', WHATSAPP_AUTH_TOKEN: 'WhatsApp auth token', WHATSAPP_TO_NUMBER: 'WhatsApp to number',
+};
+const AI_LABEL = { api: 'AI: Anthropic API key', 'claude-cli': 'AI: Claude Code login on this machine', off: 'AI: off (rule-based)' };
+const connClear = new Set();
+function renderConnections({ keys, ai_provider }) {
+  connClear.clear();
+  $('#ai-provider').textContent = '· ' + (AI_LABEL[ai_provider] || ai_provider);
+  $('#redirect-uri').textContent = keys.GOOGLE_REDIRECT_URI.value || `${location.origin}/oauth2callback`;
+  $('#connections').innerHTML = Object.entries(CONN_LABELS).map(([k, label]) => {
+    const s = keys[k];
+    const state = s.source === 'env' ? '<span class="badge b-muted" title="Set on the server; edit it there">server env</span>'
+      : s.set ? `<span class="badge b-ok">set</span> <button type="button" class="btn link" data-clear="${k}">clear</button>` : '<span class="badge b-pending">not set</span>';
+    return `<div class="conn"><label for="c-${k}">${label}</label>
+      <input id="c-${k}" data-key="${k}" type="${/SECRET|TOKEN|API_KEY/.test(k) ? 'password' : 'text'}" autocomplete="off"
+        placeholder="${esc(s.value || '')}" ${s.source === 'env' ? 'disabled' : ''}>
+      <span class="state">${state}</span></div>`;
+  }).join('');
+}
+document.addEventListener('click', e => {
+  const k = e.target.dataset?.clear;
+  if (!k) return;
+  connClear.add(k);
+  const input = $('#c-' + k);
+  input.value = ''; input.placeholder = 'will be cleared on Save';
+  e.target.parentElement.innerHTML = '<span class="badge b-pending">clearing</span>';
+});
+
 $('#settings-btn').onclick = async () => {
   try {
+    renderConnections(await api('/api/connections'));
     const s = await api('/api/settings');
     const f = $('#settings-form');
     for (const k of ['morning_brief', 'tomorrow_preview', 'follow_up_chase', 'weekly_wrap']) f[k].value = s.reminder_times[k];
@@ -674,6 +726,14 @@ $('#settings-form').onsubmit = async e => {
       sender_blocklist: lines(f.sender_blocklist.value), key_meeting_keywords: lines(f.key_meeting_keywords.value),
       projects: lines(f.projects.value), roles,
     } });
+    const conn = {};
+    for (const input of document.querySelectorAll('#connections input[data-key]')) if (input.value.trim()) conn[input.dataset.key] = input.value.trim();
+    for (const k of connClear) conn[k] = null;
+    if (Object.keys(conn).length) await api('/api/connections', { method: 'PUT', body: conn });
+    if (f.pw_next.value) {
+      await api('/api/password', { method: 'PUT', body: { current: f.pw_current.value, next: f.pw_next.value } });
+      f.pw_current.value = f.pw_next.value = '';
+    }
     closeModals(); toast('Settings saved'); loadPeople(); loadAll();
   } catch (err) { toast(err.message, true); }
 };
@@ -694,6 +754,11 @@ $('#sync-btn').onclick = async () => {
 let qTimer;
 $('#f-q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(loadAll, 250); });
 for (const id of ['#f-project', '#f-priority', '#f-status', '#inbox-reply-only']) $(id).addEventListener('change', loadAll);
+
+if (new URLSearchParams(location.search).get('connected') === 'google') {
+  toast('Google connected — syncing Gmail and Calendar now');
+  history.replaceState(null, '', '/');
+}
 
 loadPeople();
 loadAll();

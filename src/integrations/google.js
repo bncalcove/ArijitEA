@@ -5,15 +5,14 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
 ];
 
-export function oauthClient() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI,
-  );
+export function oauthClient(redirectUri = process.env.GOOGLE_REDIRECT_URI) {
+  return new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, redirectUri);
 }
 
 let authed;
+/** Call after Google keys change on the dashboard. */
+export function resetGoogle() { authed = undefined; }
+
 export function googleAuth() {
   if (!process.env.GOOGLE_REFRESH_TOKEN) return null;
   if (!authed) {

@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
-import { getSettings, putSettings, readRoles, writeRoles, readProjects, ROOT } from '../db.js';
+import { getSettings, putSettings, readRoles, writeRoles, readProjects, writeProjects } from '../db.js';
 import { jobTable, reload } from '../jobs/scheduler.js';
+import { secretStatus, saveSecrets, passwordFromEnv, verifyPassword, setPassword } from '../config.js';
+import { resetGoogle } from '../integrations/google.js';
+import { resetAnthropic, aiProvider } from '../integrations/anthropic.js';
 
 const r = Router();
 
@@ -32,12 +33,29 @@ r.put('/settings', (req, res) => {
     writeRoles(roles);
   }
   if (Array.isArray(projects)) {
-    const file = path.join(ROOT, 'config', 'projects.json');
-    const current = JSON.parse(fs.readFileSync(file, 'utf8')).projects;
-    const next = projects.map(String).filter(Boolean).map(tag => current.find(p => p.tag === tag) || { tag, keywords: [] });
-    fs.writeFileSync(file, JSON.stringify({ projects: next }, null, 2) + '\n');
+    const tags = [...new Set(projects.map(String).map(t => t.trim()).filter(Boolean))];
+    if (!tags.length) return res.status(400).json({ error: 'Keep at least one project' });
+    writeProjects(tags);
   }
   res.json({ ...getSettings(), roles: readRoles(), projects: readProjects() });
+});
+
+// Integration keys entered on the dashboard. Values are never returned in full.
+r.get('/connections', (req, res) => res.json({ keys: secretStatus(), ai_provider: aiProvider() }));
+
+r.put('/connections', (req, res) => {
+  const changed = saveSecrets(req.body || {});
+  if (changed.some(k => k.startsWith('GOOGLE_'))) resetGoogle();
+  if (changed.includes('ANTHROPIC_API_KEY')) resetAnthropic();
+  res.json({ keys: secretStatus(), ai_provider: aiProvider(), changed });
+});
+
+r.put('/password', (req, res) => {
+  if (passwordFromEnv()) return res.status(400).json({ error: 'Password is set by an environment variable on the server' });
+  const { current, next: newPassword } = req.body || {};
+  if (!verifyPassword(current || '')) return res.status(401).json({ error: 'Current password is wrong' });
+  try { setPassword(newPassword || ''); } catch (e) { return res.status(400).json({ error: e.message }); }
+  res.json({ ok: true });
 });
 
 export default r;

@@ -14,7 +14,24 @@ npm start                 # http://localhost:3000
 The app runs without any keys. AI, Google and WhatsApp each switch on once their variables are set.
 Until then WhatsApp messages are printed to the console (dry run).
 
-## 2. Configure `.env`
+## Deploying from git, with no `.env` (in-house deploy system)
+You don't need any environment variables:
+1. Push to git and let the system deploy. The app listens on `$PORT` (the platform sets it) and answers `GET /healthz`.
+2. Find this line in the deploy log: `FIRST-RUN SETUP: ... enter setup code XXXXXXXX`.
+3. Open the app URL, enter that code and choose the dashboard password. A new code is printed on each restart until a password is set.
+4. Go to **Settings → Connections** and enter the Google client ID and secret, the WhatsApp details and, optionally, an Anthropic API key. Then click **Connect Google**. The keys are stored in the app database, never in git.
+
+**Persistent data.** The database holds tasks, notes, the password and the keys. It is stored in
+`DATA_DIR` if that's set; otherwise in `/data` if that folder exists and is writable; otherwise in `./data`.
+Ask the infra team to mount a persistent volume at `/data`. Without it, every redeploy starts empty and
+you have to run setup again.
+
+**AI on a server.** The Claude Code login only exists on a machine where Claude Code is installed and
+logged in. On a deploy server, add an Anthropic API key in Connections. Without one, the app runs in
+rule-based mode.
+
+## 2. Configure `.env` (optional: local runs, or hosts that support env vars)
+Any variable set here overrides the dashboard value. Every variable is optional.
 | Variable | What to put |
 |---|---|
 | `DASHBOARD_PASSWORD` | Login password for the dashboard |
@@ -30,8 +47,8 @@ Until then WhatsApp messages are printed to the console (dry run).
 1. In Google Cloud Console, create a project and enable the **Gmail API** and the **Google Calendar API**.
 2. Under OAuth consent screen, choose Internal if you're on Workspace, and add the scopes `gmail.readonly` and `calendar.readonly`.
 3. Create an OAuth client of type **Web application**. Use `http://localhost:3000/oauth2callback` as the redirect URI, or your HTTPS URL followed by `/oauth2callback`.
-4. Put the client ID, client secret and redirect URI in `.env`, then restart and log in.
-5. Open **`/auth/google`**, approve access, and copy the refresh token you're shown into `GOOGLE_REFRESH_TOKEN`. Restart again.
+4. Enter the client ID and secret in **Settings → Connections** (or in `.env`) and save.
+5. Click **Connect Google** and approve access. The refresh token is saved automatically and the first sync starts.
 
 ## 4. Connect WhatsApp
 `src/integrations/whatsapp.js` sends a request to `WHATSAPP_ENDPOINT`:
