@@ -16,9 +16,10 @@ Until then WhatsApp messages are printed to the console (dry run).
 
 ## Deploying from git, with no `.env` (in-house deploy system)
 You don't need any environment variables:
-1. Push to git and let the system deploy. The app listens on `$PORT` (the platform sets it) and answers `GET /healthz`.
-2. Find this line in the deploy log: `FIRST-RUN SETUP: ... enter setup code XXXXXXXX`.
-3. Open the app URL, enter that code and choose the dashboard password. A new code is printed on each restart until a password is set.
+1. Push to git and let the system deploy. The app listens on `$PORT` and honours `BASE_PATH` (for example `/p/ea`); both are set by the platform.
+2. Sign in with the initial password. Only its scrypt hash is in `config/admin.json`; the password itself was shared separately.
+3. Change the password in **Settings → Change password**. The new one is stored in the app database and replaces the committed one.
+   If `config/admin.json` is deleted, the app falls back to a first-run `/setup` page that needs a code from the server log.
 4. Go to **Settings → Connections** and enter the Google client ID and secret, the WhatsApp details and, optionally, an Anthropic API key. Then click **Connect Google**. The keys are stored in the app database, never in git.
 
 **Persistent data.** The database holds tasks, notes, the password and the keys. It is stored in

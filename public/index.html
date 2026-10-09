@@ -299,7 +299,7 @@ code { background: #eef0f4; padding: 1px 5px; border-radius: 4px; font-size: 12p
       <div class="hint" style="margin-top:-6px">Keys are stored in the app database, not in git. Leave a field blank to keep its current value. <span id="ai-provider"></span></div>
       <div id="connections"></div>
       <div class="hint">Google: create an OAuth client of type <b>Web application</b> in Google Cloud Console, with redirect URI <code id="redirect-uri"></code>. Save the client ID and secret here, then
-        <a href="/auth/google" class="btn sm gold" id="google-connect">Connect Google</a></div>
+        <a href="auth/google" class="btn sm gold" id="google-connect">Connect Google</a></div>
 
       <h4 class="set-h">Change password</h4>
       <div class="row2">
@@ -318,14 +318,16 @@ code { background: #eef0f4; padding: 1px 5px; border-radius: 4px; font-size: 12p
 
 <script>
 const IST = 'Asia/Kolkata';
+// App may be served under a sub-path (e.g. /p/ea/); every server URL is built from this.
+const BASE = location.pathname.replace(/\/[^/]*$/, '');
 const state = { tasks: [], inbox: [], upcoming: [], past: [], today: null, people: [], projects: [] };
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ---------- helpers ----------
 async function api(path, opts = {}) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
-  if (res.status === 401) { location.href = '/login'; throw new Error('Login required'); }
+  const res = await fetch(BASE + path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (res.status === 401) { location.href = BASE + '/login'; throw new Error('Login required'); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -682,7 +684,7 @@ const connClear = new Set();
 function renderConnections({ keys, ai_provider }) {
   connClear.clear();
   $('#ai-provider').textContent = '· ' + (AI_LABEL[ai_provider] || ai_provider);
-  $('#redirect-uri').textContent = keys.GOOGLE_REDIRECT_URI.value || `${location.origin}/oauth2callback`;
+  $('#redirect-uri').textContent = keys.GOOGLE_REDIRECT_URI.value || `${location.origin}${BASE}/oauth2callback`;
   $('#connections').innerHTML = Object.entries(CONN_LABELS).map(([k, label]) => {
     const s = keys[k];
     const state = s.source === 'env' ? '<span class="badge b-muted" title="Set on the server; edit it there">server env</span>'
@@ -737,7 +739,7 @@ $('#settings-form').onsubmit = async e => {
     closeModals(); toast('Settings saved'); loadPeople(); loadAll();
   } catch (err) { toast(err.message, true); }
 };
-$('#logout-btn').onclick = () => fetch('/logout', { method: 'POST' }).then(() => location.href = '/login');
+$('#logout-btn').onclick = () => fetch(BASE + '/logout', { method: 'POST' }).then(() => location.href = BASE + '/login');
 
 // Sync now
 $('#sync-btn').onclick = async () => {
@@ -757,7 +759,7 @@ for (const id of ['#f-project', '#f-priority', '#f-status', '#inbox-reply-only']
 
 if (new URLSearchParams(location.search).get('connected') === 'google') {
   toast('Google connected — syncing Gmail and Calendar now');
-  history.replaceState(null, '', '/');
+  history.replaceState(null, '', location.pathname);
 }
 
 loadPeople();

@@ -16,8 +16,21 @@ import { oauthClient, GOOGLE_SCOPES, googleEnabled, resetGoogle } from './integr
 import { aiProvider } from './integrations/anthropic.js';
 
 const PORT = process.env.PORT || 3000;
+// Served under a sub-path behind the proxy, e.g. https://employees.alcoverealty.in/p/ea/
+const BASE = (process.env.BASE_PATH || '').replace(/\/+$/, '');
+const to = p => BASE + p;
 
 const app = express();
+// Accept requests with or without the prefix (works whether the proxy strips it or not).
+app.use((req, res, next) => {
+  if (BASE && req.url.startsWith(BASE) && (req.url.length === BASE.length || '/?'.includes(req.url[BASE.length]))) {
+    const rest = req.url.slice(BASE.length);
+    // The dashboard uses relative URLs, so it must be loaded as /p/ea/ (with the slash).
+    if (!rest.startsWith('/')) return res.redirect(301, BASE + '/' + rest);
+    req.url = rest;
+  }
+  next();
+});
 app.set('trust proxy', 1); // behind HTTPS reverse proxy / VPN
 app.disable('x-powered-by');
 app.use(express.json({ limit: '2mb' }));
@@ -60,11 +73,11 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #ccd;b
 button{margin-top:16px;width:100%;padding:10px;border:0;border-radius:8px;background:#c9a227;color:#0f1f3d;font-weight:600;font-size:15px;cursor:pointer}
 .err{color:#c0392b;font-size:13px;margin-top:10px}</style></head><body>${body}</body></html>`;
 
-const loginPage = (error = '') => page('Sign in', `<form method="post" action="/login"><h1>Ari's EA</h1><p>Enter the dashboard password</p>
+const loginPage = (error = '') => page('Sign in', `<form method="post" action="${to('/login')}"><h1>Ari's EA</h1><p>Enter the dashboard password</p>
 <input type="password" name="password" autofocus autocomplete="current-password" required>
 <button type="submit">Sign in</button>${error ? `<div class="err">${error}</div>` : ''}</form>`);
 
-const setupPage = (error = '') => page('Set up', `<form method="post" action="/setup"><h1>Set up Ari's EA</h1>
+const setupPage = (error = '') => page('Set up', `<form method="post" action="${to('/setup')}"><h1>Set up Ari's EA</h1>
 <p>Choose the dashboard password. The setup code is printed in the server / deploy log.</p>
 <label>Setup code</label><input name="code" autocomplete="off" required autofocus>
 <label>New password (8+ characters)</label><input type="password" name="password" minlength="8" autocomplete="new-password" required>
@@ -72,12 +85,12 @@ const setupPage = (error = '') => page('Set up', `<form method="post" action="/s
 <button type="submit">Save and sign in</button>${error ? `<div class="err">${error}</div>` : ''}</form>`);
 
 function login(req, res) {
-  req.session.regenerate(() => { req.session.authed = true; res.redirect('/'); });
+  req.session.regenerate(() => { req.session.authed = true; res.redirect(to('/')); });
 }
 
-app.get('/setup', (req, res) => (passwordConfigured() ? res.redirect('/login') : res.send(setupPage())));
+app.get('/setup', (req, res) => (passwordConfigured() ? res.redirect(to('/login')) : res.send(setupPage())));
 app.post('/setup', (req, res) => {
-  if (passwordConfigured()) return res.redirect('/login');
+  if (passwordConfigured()) return res.redirect(to('/login'));
   if (throttled(req.ip)) return res.status(429).send(setupPage('Too many attempts. Try again in 15 minutes.'));
   const { code, password, confirm } = req.body || {};
   if (password !== confirm) return res.status(400).send(setupPage('Passwords do not match.'));
@@ -86,24 +99,24 @@ app.post('/setup', (req, res) => {
   login(req, res);
 });
 
-app.get('/login', (req, res) => (passwordConfigured() ? res.send(loginPage()) : res.redirect('/setup')));
+app.get('/login', (req, res) => (passwordConfigured() ? res.send(loginPage()) : res.redirect(to('/setup'))));
 app.post('/login', (req, res) => {
-  if (!passwordConfigured()) return res.redirect('/setup');
+  if (!passwordConfigured()) return res.redirect(to('/setup'));
   if (throttled(req.ip)) return res.status(429).send(loginPage('Too many attempts. Try again in 15 minutes.'));
   if (verifyPassword(req.body?.password || '')) { attempts.delete(req.ip); return login(req, res); }
   recordFailure(req.ip);
   res.status(401).send(loginPage('Wrong password.'));
 });
-app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
+app.post('/logout', (req, res) => req.session.destroy(() => res.redirect(to('/login'))));
 
 app.use((req, res, next) => {
   if (req.session.authed) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Login required' });
-  res.redirect(passwordConfigured() ? '/login' : '/setup');
+  res.redirect(to(passwordConfigured() ? '/login' : '/setup'));
 });
 
 // ---- Google OAuth: Settings → Connections → "Connect Google" ----
-const redirectUri = req => process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}/oauth2callback`;
+const redirectUri = req => process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}${BASE}/oauth2callback`;
 
 app.get('/auth/google', (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -125,7 +138,7 @@ app.get('/oauth2callback', async (req, res) => {
     saveSecrets({ GOOGLE_REFRESH_TOKEN: tokens.refresh_token, GOOGLE_REDIRECT_URI: req.session.oauthRedirect });
     resetGoogle();
     runJob(...MANUAL_SOURCES.calendar).then(() => runJob(...MANUAL_SOURCES.gmail));
-    res.redirect('/?connected=google');
+    res.redirect(to('/?connected=google'));
   } catch (e) {
     res.status(500).send(`OAuth failed: ${e.message}`);
   }

@@ -5,7 +5,9 @@
 // - the dashboard password is either DASHBOARD_PASSWORD or a scrypt hash set on first run
 //   via /setup, which needs a one-time code printed to the server log.
 import crypto from 'node:crypto';
-import { db } from './db.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { db, ROOT } from './db.js';
 
 export const SECRET_KEYS = [
   'ANTHROPIC_API_KEY',
@@ -62,15 +64,24 @@ export function sessionSecret() {
 }
 
 // ---------- dashboard password ----------
+// Order: DASHBOARD_PASSWORD env → hash set on the dashboard (DB) → initial hash committed in
+// config/admin.json (only a scrypt hash is in git, never the password).
+function committedHash() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'admin.json'), 'utf8')).password_hash || null;
+  } catch { return null; }
+}
+const currentHash = () => getRow('_password_hash') || committedHash();
+
 export const passwordFromEnv = () => !!process.env.DASHBOARD_PASSWORD;
-export const passwordConfigured = () => passwordFromEnv() || !!getRow('_password_hash');
+export const passwordConfigured = () => passwordFromEnv() || !!currentHash();
 
 const sha = v => crypto.createHash('sha256').update(String(v)).digest();
 export const safeEqual = (a, b) => crypto.timingSafeEqual(sha(a), sha(b));
 
 export function verifyPassword(pw) {
   if (passwordFromEnv()) return safeEqual(pw, process.env.DASHBOARD_PASSWORD);
-  const stored = getRow('_password_hash');
+  const stored = currentHash();
   if (!stored) return false;
   const [salt, hash] = stored.split(':');
   const test = crypto.scryptSync(String(pw), salt, 64).toString('hex');
