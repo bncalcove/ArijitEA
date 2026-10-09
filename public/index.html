@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ari's EA</title>
+<style>
+:root {
+  --navy: #0f1f3d; --navy-2: #1b3160; --gold: #c9a227; --gold-soft: #f6efd6;
+  --bg: #f4f6fa; --card: #fff; --ink: #1d2433; --muted: #6b7486; --line: #e3e7ef;
+  --red: #c0392b; --red-soft: #fdecea; --amber: #b7791f; --amber-soft: #fdf3e1;
+  --green: #2e8b57; --green-soft: #e6f4ec; --blue: #2c5cc5; --blue-soft: #e8eefb;
+  --radius: 10px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* top bar */
+.top { position: sticky; top: 0; z-index: 20; background: var(--navy); color: #fff; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+.top h1 { margin: 0; font-size: 18px; font-weight: 600; }
+.top .date { color: #b9c3d9; font-size: 13px; }
+.top .spacer { flex: 1; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #888; }
+.dot.ok { background: #3ecf8e; } .dot.warn { background: #f0b429; } .dot.err { background: #ef5350; }
+.sync { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #b9c3d9; cursor: pointer; background: none; border: 0; }
+.btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: #b8c0d0; }
+.btn.gold { background: var(--gold); border-color: var(--gold); color: var(--navy); font-weight: 600; }
+.btn.gold:hover { filter: brightness(1.05); }
+.btn.ghost { background: transparent; border-color: #ffffff40; color: #fff; }
+.btn.sm { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
+.btn.link { border: 0; background: none; color: var(--blue); padding: 0; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+main { padding: 20px 24px 60px; max-width: 1500px; margin: 0 auto; }
+
+/* filters */
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.filters input, .filters select { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: #fff; }
+.filters input[type=search] { flex: 1; min-width: 200px; }
+
+/* today strip */
+.strip { display: grid; grid-template-columns: 2fr repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.stat .value { font-size: 26px; font-weight: 700; margin-top: 2px; }
+.stat.red .value { color: var(--red); }
+.stat.red.hot { background: var(--red-soft); border-color: #f5c6c0; }
+.stat .meet-title { font-weight: 600; font-size: 15px; margin-top: 4px; }
+.stat .meet-sub { color: var(--muted); font-size: 13px; }
+
+/* sections */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+section.panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
+.cols section.panel { margin-bottom: 0; }
+.panel-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.panel-head h2 { margin: 0; font-size: 15px; }
+.panel-head .count { color: var(--muted); font-weight: 400; }
+.panel-head .spacer { flex: 1; }
+.panel-body { padding: 0; }
+.empty { padding: 24px 16px; color: var(--muted); text-align: center; }
+.scroll { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; background: #fafbfd; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+tr.done td { opacity: .5; }
+tr.done .t-title { text-decoration: line-through; }
+.t-title { font-weight: 500; }
+.t-desc { color: var(--muted); font-size: 12px; margin-top: 2px; white-space: pre-line; max-height: 3.2em; overflow: hidden; }
+.actions { display: flex; gap: 4px; flex-wrap: wrap; }
+td.nowrap { white-space: nowrap; }
+td select.status { border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; font-size: 12px; background: #fff; }
+
+.badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.p1 { background: var(--red-soft); color: var(--red); }
+.p2 { background: var(--amber-soft); color: var(--amber); }
+.p3 { background: var(--blue-soft); color: var(--blue); }
+.p4 { background: #eef0f4; color: var(--muted); }
+.b-review { background: #fff4d6; color: #8a6100; cursor: pointer; }
+.b-block { background: var(--red-soft); color: var(--red); }
+.b-pending { background: var(--amber-soft); color: var(--amber); }
+.b-ok { background: var(--green-soft); color: var(--green); }
+.b-muted { background: #eef0f4; color: var(--muted); }
+.overdue { color: var(--red); font-weight: 600; }
+.chip { display: inline-block; background: #eef0f4; border-radius: 999px; padding: 1px 8px; font-size: 12px; margin: 1px 2px 1px 0; }
+
+.wrong { margin-top: 6px; padding: 8px; background: #fafbfd; border: 1px dashed var(--line); border-radius: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.wrong input, .wrong select { border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+
+/* inbox */
+.emails { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; padding: 14px; }
+.email { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.email.reply { border-left: 3px solid var(--gold); }
+.email .from { font-weight: 600; }
+.email .subj { font-weight: 500; }
+.email .meta { color: var(--muted); font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.email .summary { color: #374055; }
+.email ul { margin: 0; padding-left: 18px; color: #374055; }
+.email .foot { display: flex; gap: 8px; align-items: center; margin-top: auto; padding-top: 4px; }
+.sub-h { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; font-weight: 600; }
+
+/* calendar */
+.days { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0; }
+.day { padding: 12px 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.day h3 { margin: 0 0 8px; font-size: 13px; color: var(--navy-2); }
+.day.today h3 { color: var(--gold); }
+.mtg { padding: 6px 0; border-top: 1px dashed var(--line); }
+.mtg:first-of-type { border-top: 0; }
+.mtg .when { font-size: 12px; color: var(--muted); }
+.mtg .name { font-weight: 500; }
+.mtg .prep { font-size: 12px; color: #374055; background: var(--gold-soft); border-radius: 6px; padding: 4px 6px; margin-top: 4px; }
+.plat { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 4px; color: #fff; }
+.plat.meet { background: #188038; } .plat.zoom { background: #2d8cff; } .plat.teams { background: #5b5fc7; } .plat.other { background: #8a93a6; }
+
+/* notes */
+.notes-list { padding: 4px 16px; }
+.note-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.note-item:last-child { border-bottom: 0; }
+.note-item .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.note-item .name { font-weight: 600; }
+.note-item .when { color: var(--muted); font-size: 12px; }
+.note-item details { margin-top: 6px; }
+.note-item summary { cursor: pointer; color: var(--blue); font-size: 13px; }
+.note-body { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 8px; }
+.note-body pre { white-space: pre-wrap; font: inherit; margin: 0; }
+.note-body ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* modal */
+.backdrop { position: fixed; inset: 0; background: #0f1f3d80; display: none; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 50; overflow-y: auto; }
+.backdrop.open { display: flex; }
+.modal { background: #fff; border-radius: 12px; width: min(560px, 100%); box-shadow: 0 20px 60px #0005; }
+.modal.wide { width: min(760px, 100%); }
+.modal header { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+.modal header h3 { margin: 0; font-size: 16px; flex: 1; }
+.modal .body { padding: 16px 20px; display: grid; gap: 12px; }
+.modal footer { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+.field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.field input, .field select, .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff; }
+.field textarea { min-height: 80px; resize: vertical; }
+.field .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 5px 6px; }
+.tags input { border: 0 !important; padding: 3px 4px !important; flex: 1; min-width: 120px; outline: none; }
+.tag { background: var(--blue-soft); color: var(--blue); border-radius: 999px; padding: 2px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+.tag button { border: 0; background: none; cursor: pointer; color: inherit; padding: 0; line-height: 1; }
+
+/* toast */
+.toasts { position: fixed; bottom: 20px; right: 20px; display: grid; gap: 8px; z-index: 60; }
+.toast { background: var(--navy); color: #fff; padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 20px #0004; max-width: 380px; }
+.toast.err { background: var(--red); }
+
+@media (max-width: 1100px) {
+  .strip { grid-template-columns: repeat(2, 1fr); }
+  .strip .next { grid-column: 1 / -1; }
+  .cols { grid-template-columns: 1fr; }
+  .note-body { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .top { padding: 10px 16px; flex-wrap: wrap; }
+  .top .date { display: none; }
+  main { padding: 14px 16px 60px; }
+  .emails { grid-template-columns: 1fr; }
+  .row2 { grid-template-columns: 1fr; }
+  .hide-sm { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1 id="greeting">Good morning, Ari</h1>
+  <span class="date" id="today-date"></span>
+  <span class="spacer"></span>
+  <button class="sync" id="sync-btn" title="Click to sync Gmail + Calendar now"><span class="dot" id="sync-dot"></span><span id="sync-text">…</span></button>
+  <button class="btn ghost sm" id="settings-btn">Settings</button>
+  <button class="btn gold" id="add-btn">+ Add Task</button>
+</header>
+
+<main>
+  <div class="filters">
+    <input type="search" id="f-q" placeholder="Search tasks, emails, meetings…">
+    <select id="f-project"><option value="">All projects</option></select>
+    <select id="f-priority"><option value="">All priorities</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
+    <select id="f-status">
+      <option value="">Open (all active)</option><option value="open">Open</option><option value="in_progress">In progress</option>
+      <option value="waiting">Waiting</option><option value="done">Done</option><option value="dropped">Dropped</option><option value="all">Everything</option>
+    </select>
+  </div>
+
+  <div class="strip">
+    <div class="card stat next" id="s-next"><div class="label">Next meeting</div><div class="meet-sub">—</div></div>
+    <div class="card stat"><div class="label">P1 (My Job)</div><div class="value" id="s-p1">–</div></div>
+    <div class="card stat red" id="s-overdue-card"><div class="label">Overdue</div><div class="value" id="s-overdue">–</div></div>
+    <div class="card stat"><div class="label">Awaiting my reply</div><div class="value" id="s-reply">–</div></div>
+    <div class="card stat"><div class="label">Chase today</div><div class="value" id="s-chase">–</div></div>
+  </div>
+
+  <div class="cols">
+    <section class="panel">
+      <div class="panel-head"><h2>My Job <span class="count" id="mine-count"></span></h2></div>
+      <div class="panel-body scroll" id="mine"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Not My Job <span class="count" id="notmine-count"></span></h2></div>
+      <div class="panel-body scroll" id="notmine"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Inbox digest <span class="count" id="inbox-count"></span></h2><span class="spacer"></span>
+      <label style="font-size:13px"><input type="checkbox" id="inbox-reply-only"> Needs reply only</label>
+    </div>
+    <div class="panel-body" id="inbox"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Calendar — today + 7 days</h2></div>
+    <div class="panel-body" id="calendar"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Meeting notes</h2><span class="spacer"></span><button class="btn sm gold" id="paste-any">Paste notes</button></div>
+    <div class="panel-body" id="notes"></div>
+  </section>
+</main>
+
+<datalist id="people-list"></datalist>
+
+<!-- Add Task -->
+<div class="backdrop" id="m-add"><div class="modal">
+  <header><h3>Add task</h3><button class="btn sm" data-close>✕</button></header>
+  <form id="add-form">
+    <div class="body">
+      <div class="field"><label>Task *</label><input name="title" required maxlength="300" placeholder="e.g. Send revised payment plan to Mehta family"></div>
+      <div class="row2">
+        <div class="field"><label>Date (IST)</label><input type="date" name="date"></div>
+        <div class="field"><label>Time (IST)</label><input type="time" name="time" value="10:00"></div>
+      </div>
+      <div class="field"><label>People</label>
+        <div class="tags" id="people-tags"><input id="people-input" list="people-list" placeholder="Type a name, press Enter"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Project</label><select name="project" id="add-project"><option value="">Let AI decide</option></select></div>
+        <div class="field"><label>Bucket</label><select name="bucket"><option value="">Let AI decide</option><option value="mine">My Job</option><option value="not_mine">Not My Job</option></select></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+    </div>
+    <footer><button type="button" class="btn" data-close>Cancel</button><button class="btn gold" type="submit">Save</button></footer>
+  </form>
+</div></div>
+
+<!-- Paste notes -->
+<div class="backdrop" id="m-notes"><div class="modal wide">
+  <header><h3 id="notes-title">Paste Granola notes</h3><button class="btn sm" data-close>✕</button></header>
+  <form id="notes-form">
+    <div class="body">
+      <div class="field">
+        <label>Meeting</label>
+        <select id="notes-meeting"><option value="">Auto-match to the closest meeting</option></select>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="notes-text" style="min-height:260px" placeholder="Paste the Granola notes here"></textarea>
+        <div class="hint">You can also email notes to yourself with the notes tag in the subject; they're picked up on the next Gmail sync.</div></div>
+    </div>
+    <footer><button type="button" class="btn" data-close>Cancel</button><button class="btn gold" type="submit" id="notes-submit">Process notes</button></footer>
+  </form>
+</div></div>
+
+<!-- Settings -->
+<div class="backdrop" id="m-settings"><div class="modal wide">
+  <header><h3>Settings</h3><button class="btn sm" data-close>✕</button></header>
+  <form id="settings-form">
+    <div class="body">
+      <div class="row2">
+        <div class="field"><label>Morning brief</label><input type="time" name="morning_brief"></div>
+        <div class="field"><label>Tomorrow preview</label><input type="time" name="tomorrow_preview"></div>
+        <div class="field"><label>Follow-up chase</label><input type="time" name="follow_up_chase"></div>
+        <div class="field"><label>Weekly wrap</label><input name="weekly_wrap" placeholder="Fri 18:00"></div>
+      </div>
+      <div class="field"><label>Sender blocklist (one per line, matched against name/email)</label><textarea name="sender_blocklist"></textarea></div>
+      <div class="field"><label>Key-meeting keywords (one per line; meetings with outside attendees are always key)</label><textarea name="key_meeting_keywords"></textarea></div>
+      <div class="field"><label>Projects (one per line)</label><textarea name="projects"></textarea></div>
+      <div class="field"><label>Roles (config/roles.json)</label><textarea name="roles" style="min-height:220px;font-family:ui-monospace,Consolas,monospace;font-size:12px"></textarea></div>
+    </div>
+    <footer>
+      <button type="button" class="btn" id="logout-btn" style="margin-right:auto">Log out</button>
+      <button type="button" class="btn" data-close>Cancel</button><button class="btn gold" type="submit">Save</button>
+    </footer>
+  </form>
+</div></div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+const IST = 'Asia/Kolkata';
+const state = { tasks: [], inbox: [], upcoming: [], past: [], today: null, people: [], projects: [] };
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------- helpers ----------
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (res.status === 401) { location.href = '/login'; throw new Error('Login required'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+function toast(msg, err = false) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (err ? ' err' : '');
+  el.textContent = msg;
+  $('#toasts').append(el);
+  setTimeout(() => el.remove(), err ? 7000 : 4500);
+}
+const fmt = (iso, o) => new Date(iso).toLocaleString('en-IN', { timeZone: IST, ...o });
+const fmtDT = iso => iso ? fmt(iso, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '—';
+const fmtD = iso => iso ? fmt(iso, { weekday: 'short', day: 'numeric', month: 'short' }) : '—';
+const fmtT = iso => iso ? fmt(iso, { hour: 'numeric', minute: '2-digit' }) : '';
+const istKey = d => new Date(new Date(d).getTime() + 5.5 * 3600e3).toISOString().slice(0, 10);
+const isOverdue = t => t.due_at && new Date(t.due_at) < new Date() && !['done', 'dropped'].includes(t.status);
+const q = () => $('#f-q').value.trim().toLowerCase();
+const matchQ = (...fields) => !q() || fields.join(' ').toLowerCase().includes(q());
+const PLAT = { meet: 'Meet', zoom: 'Zoom', teams: 'Teams', other: 'Link' };
+const SOURCE = { email: '✉️', calendar: '📅', meeting: '📝', manual: '✍️', whatsapp: '💬' };
+
+function ago(iso) {
+  if (!iso) return 'never';
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+}
+
+// ---------- load ----------
+async function loadAll() {
+  const params = new URLSearchParams();
+  for (const [k, id] of [['project', '#f-project'], ['priority', '#f-priority'], ['status', '#f-status']]) if ($(id).value) params.set(k, $(id).value);
+  if (q()) params.set('q', q());
+  try {
+    const [today, tasks, inbox, upcoming, past] = await Promise.all([
+      api('/api/today'), api('/api/tasks?' + params), api('/api/inbox' + ($('#inbox-reply-only').checked ? '?needs_reply=true' : '')),
+      api('/api/meetings?range=upcoming'), api('/api/meetings?range=past'),
+    ]);
+    Object.assign(state, { today, tasks, inbox, upcoming, past });
+    if (JSON.stringify(state.projects) !== JSON.stringify(today.projects)) { state.projects = today.projects; fillProjects(); }
+    render();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadPeople() {
+  state.people = await api('/api/people').catch(() => []);
+  $('#people-list').innerHTML = state.people.map(p => `<option value="${esc(p.name)}">${esc(p.role || p.team || '')}</option>`).join('');
+}
+
+function fillProjects() {
+  const opts = state.projects.map(p => `<option>${esc(p)}</option>`).join('');
+  const keep = $('#f-project').value;
+  $('#f-project').innerHTML = '<option value="">All projects</option>' + opts;
+  $('#f-project').value = keep;
+  $('#add-project').innerHTML = '<option value="">Let AI decide</option>' + opts;
+}
+
+// ---------- render ----------
+function render() {
+  renderTop(); renderStrip(); renderTasks(); renderInbox(); renderCalendar(); renderNotes();
+}
+
+function renderTop() {
+  const h = Number(fmt(new Date(), { hour: 'numeric', hour12: false }));
+  $('#greeting').textContent = `${h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'}, Ari`;
+  $('#today-date').textContent = fmt(new Date(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' · IST';
+  const sync = state.today?.sync || [];
+  const err = sync.find(s => s.last_error);
+  const lastOk = sync.map(s => s.last_ok_at).filter(Boolean).sort().pop();
+  const fresh = lastOk && Date.now() - new Date(lastOk) < 30 * 60e3;
+  $('#sync-dot').className = 'dot ' + (err ? 'err' : fresh ? 'ok' : 'warn');
+  $('#sync-text').textContent = err ? `Sync error (${err.source})` : sync.length ? `Synced ${ago(lastOk)}` : 'Not synced';
+  $('#sync-btn').title = err ? err.last_error : 'Click to sync Gmail + Calendar now';
+}
+
+function renderStrip() {
+  const t = state.today; if (!t) return;
+  const m = t.next_meeting;
+  $('#s-next').innerHTML = `<div class="label">Next meeting</div>` + (m
+    ? `<div class="meet-title">${esc(m.title)}</div><div class="meet-sub">${fmtD(m.start_at)}, ${fmtT(m.start_at)}–${fmtT(m.end_at)}
+       ${m.needs_response ? ' · <span class="badge b-pending">RSVP needed</span>' : ''}</div>
+       ${m.join_link ? `<div style="margin-top:6px"><a class="btn sm gold" href="${esc(m.join_link)}" target="_blank" rel="noopener">Join ${PLAT[m.platform] || ''}</a></div>` : ''}`
+    : `<div class="meet-sub">Nothing scheduled</div>`);
+  $('#s-p1').textContent = t.p1_count;
+  $('#s-overdue').textContent = t.overdue_count;
+  $('#s-overdue-card').classList.toggle('hot', t.overdue_count > 0);
+  $('#s-reply').textContent = t.awaiting_reply_count;
+  $('#s-chase').textContent = t.chase_today_count;
+}
+
+function people(t) { return (t.people || []).map(p => `<span class="chip">${esc(p)}</span>`).join(''); }
+function due(t) { return t.due_at ? `<span class="${isOverdue(t) ? 'overdue' : ''}">${fmtDT(t.due_at)}</span>` : '<span style="color:var(--muted)">—</span>'; }
+function statusSel(t) {
+  return `<select class="status" data-act="status" data-id="${t.id}">${['open', 'in_progress', 'waiting', 'done', 'dropped']
+    .map(s => `<option value="${s}" ${s === t.status ? 'selected' : ''}>${s.replace('_', ' ')}</option>`).join('')}</select>`;
+}
+function titleCell(t) {
+  const review = t.needs_review ? ` <span class="badge b-review" data-act="confirm" data-id="${t.id}" title="AI wasn't sure (${Math.round(t.ai_confidence * 100)}%). Click if this looks right.">Review</span>` : '';
+  return `<div class="t-title">${esc(t.title)}${review}</div>
+    ${t.description ? `<div class="t-desc" title="${esc(t.description)}">${esc(t.description)}</div>` : ''}
+    ${t.priority_reason ? `<div class="t-desc">${esc(t.priority_reason)}</div>` : ''}
+    <button class="btn link" data-act="wrong" data-id="${t.id}">Wrong bucket?</button>
+    <div class="wrong" id="wrong-${t.id}" hidden>
+      <select data-field="bucket"><option value="mine" ${t.bucket === 'mine' ? 'selected' : ''}>My Job</option><option value="not_mine" ${t.bucket === 'not_mine' ? 'selected' : ''}>Not My Job</option></select>
+      <input data-field="owner" list="people-list" placeholder="Owner" value="${esc(t.bucket === 'not_mine' ? t.owner || '' : '')}">
+      <input data-field="note" placeholder="Why? (teaches the AI)" style="flex:1;min-width:140px">
+      <button class="btn sm gold" data-act="override" data-id="${t.id}">Save</button>
+    </div>`;
+}
+
+function renderTasks() {
+  const tasks = state.tasks;
+  const mine = tasks.filter(t => t.bucket === 'mine');
+  const notMine = tasks.filter(t => t.bucket === 'not_mine');
+  $('#mine-count').textContent = `(${mine.length})`;
+  $('#notmine-count').textContent = `(${notMine.length})`;
+
+  $('#mine').innerHTML = mine.length ? `<table><thead><tr><th>Pri</th><th>Task</th><th class="hide-sm">Project</th><th>Due</th><th class="hide-sm">People</th><th class="hide-sm">Src</th><th>Status</th><th></th></tr></thead><tbody>
+    ${mine.map(t => `<tr class="${t.status === 'done' ? 'done' : ''}">
+      <td><span class="badge ${t.priority.toLowerCase()}">${t.priority}</span></td>
+      <td>${titleCell(t)}</td>
+      <td class="hide-sm">${esc(t.project || '')}</td>
+      <td class="nowrap">${due(t)}</td>
+      <td class="hide-sm">${people(t)}</td>
+      <td class="hide-sm" title="${esc(t.source)}">${SOURCE[t.source] || ''}</td>
+      <td>${statusSel(t)}</td>
+      <td><div class="actions">
+        <button class="btn sm" data-act="done" data-id="${t.id}">Done</button>
+        <button class="btn sm" data-act="snooze" data-id="${t.id}" title="Push due date by 1 day">Snooze</button>
+        <button class="btn sm" data-act="to-notmine" data-id="${t.id}" title="Move to Not My Job">→ Not mine</button>
+      </div></td></tr>`).join('')}</tbody></table>` : `<div class="empty">Nothing here. 🎉</div>`;
+
+  $('#notmine').innerHTML = notMine.length ? `<table><thead><tr><th>Task</th><th>Owner</th><th class="hide-sm">Project</th><th>Follow-up</th><th></th><th>Status</th><th></th></tr></thead><tbody>
+    ${notMine.map(t => `<tr class="${t.status === 'done' ? 'done' : ''}">
+      <td>${titleCell(t)}<div class="t-desc">Due: ${due(t)}</div></td>
+      <td><b>${esc(t.owner || '—')}</b></td>
+      <td class="hide-sm">${esc(t.project || '')}</td>
+      <td class="nowrap">${t.follow_up_at ? `<span class="${new Date(t.follow_up_at) < new Date() && t.status !== 'done' ? 'overdue' : ''}">${fmtD(t.follow_up_at)}</span>` : '—'}</td>
+      <td>${t.blocking_me ? '<span class="badge b-block">Blocking me</span>' : ''}</td>
+      <td>${statusSel(t)}</td>
+      <td><div class="actions">
+        <button class="btn sm gold" data-act="chase" data-id="${t.id}" title="Copy a ready-to-send chase message">Chase</button>
+        <button class="btn sm" data-act="done" data-id="${t.id}">Done</button>
+        <button class="btn sm" data-act="to-mine" data-id="${t.id}">→ Mine</button>
+      </div></td></tr>`).join('')}</tbody></table>` : `<div class="empty">Nobody to chase.</div>`;
+}
+
+function renderInbox() {
+  const list = state.inbox.filter(e => matchQ(e.from_name, e.subject, e.summary));
+  $('#inbox-count').textContent = `(${list.length})`;
+  $('#inbox').innerHTML = list.length ? `<div class="emails">${list.map(e => `
+    <div class="email ${e.needs_reply && !['replied', 'archived'].includes(e.status) ? 'reply' : ''}">
+      <div class="meta"><span class="from" style="color:var(--ink)">${esc(e.from_name)}</span><span>${fmtDT(e.received_at)}</span>
+        ${e.urgency === 'high' ? '<span class="badge p1">Urgent</span>' : ''}
+        ${e.needs_reply && e.status !== 'replied' ? `<span class="badge b-pending">Reply${e.reply_by ? ' by ' + fmtDT(e.reply_by) : ''}</span>` : ''}
+        ${e.status === 'replied' ? '<span class="badge b-ok">Replied</span>' : ''}</div>
+      <div class="subj">${esc(e.subject)}</div>
+      <div class="summary">${esc(e.summary)}</div>
+      ${e.suggested_reply_points.length ? `<div><div class="sub-h">Reply points</div><ul>${e.suggested_reply_points.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
+      ${e.tasks.length ? `<div><div class="sub-h">Tasks</div><ul>${e.tasks.map(t => `<li>${esc(t.title)} <span class="badge ${t.bucket === 'mine' ? 'p3' : 'b-muted'}">${t.bucket === 'mine' ? 'Mine' : esc(t.owner)}</span></li>`).join('')}</ul></div>` : ''}
+      <div class="foot">
+        <a class="btn sm" href="${esc(e.gmail_link)}" target="_blank" rel="noopener">Open in Gmail</a>
+        ${e.needs_reply && e.status !== 'replied' ? `<button class="btn sm" data-act="email-replied" data-id="${e.id}">Mark replied</button>` : ''}
+        <button class="btn sm" data-act="email-archive" data-id="${e.id}">Archive</button>
+      </div>
+    </div>`).join('')}</div>` : `<div class="empty">Inbox digest is empty.</div>`;
+}
+
+function renderCalendar() {
+  const meetings = state.upcoming.filter(m => matchQ(m.title, m.organizer));
+  const days = [];
+  for (let i = 0; i < 8; i++) days.push(istKey(Date.now() + i * 864e5));
+  const todayKey = days[0];
+  $('#calendar').innerHTML = `<div class="days">${days.map(k => {
+    const ms = meetings.filter(m => istKey(m.start_at) === k);
+    const label = k === todayKey ? 'Today' : fmtD(k + 'T06:30:00Z');
+    return `<div class="day ${k === todayKey ? 'today' : ''}"><h3>${label}</h3>${ms.length ? ms.map(m => `
+      <div class="mtg">
+        <div class="when">${fmtT(m.start_at)}–${fmtT(m.end_at)} ${m.platform ? `<span class="plat ${m.platform}">${PLAT[m.platform]}</span>` : ''}
+          ${m.needs_response ? '<span class="badge b-pending">RSVP needed</span>' : ''} ${m.is_key ? '<span class="badge p2">Key</span>' : ''}</div>
+        <div class="name">${esc(m.title)}</div>
+        ${m.join_link ? `<a href="${esc(m.join_link)}" target="_blank" rel="noopener" style="font-size:12px">Join link</a>` : ''}
+        ${m.notes_summary ? ` · <a href="#notes" style="font-size:12px">Notes</a>` : ''}
+        ${m.prep_note ? `<div class="prep">${esc(m.prep_note)}</div>` : ''}
+        <div><button class="btn link" data-act="prep" data-id="${m.id}">${m.prep_note ? 'Edit' : 'Add'} prep note</button></div>
+      </div>`).join('') : '<div style="color:var(--muted);font-size:13px">No meetings</div>'}</div>`;
+  }).join('')}</div>`;
+}
+
+function renderNotes() {
+  const list = state.past.filter(m => matchQ(m.title, m.notes_summary, (m.decisions || []).join(' ')));
+  $('#notes-meeting').innerHTML = '<option value="">Auto-match to the closest meeting</option>' +
+    state.past.slice(0, 40).map(m => `<option value="${m.id}">${esc(fmtDT(m.start_at))} — ${esc(m.title)}</option>`).join('');
+  $('#notes').innerHTML = list.length ? `<div class="notes-list">${list.map(m => `
+    <div class="note-item">
+      <div class="row">
+        <span class="name">${esc(m.title)}</span><span class="when">${fmtDT(m.start_at)}</span>
+        ${m.notes_pending ? '<span class="badge b-pending">Notes pending</span>' : ''}
+        ${m.no_notes_needed ? '<span class="badge b-muted">No notes needed</span>' : ''}
+        ${m.notes_needs_confirmation ? `<span class="badge b-review">Auto-matched — check</span> <button class="btn link" data-act="confirm-match" data-id="${m.id}">Confirm</button>` : ''}
+        <span style="flex:1"></span>
+        ${m.notes_pending ? `<button class="btn sm" data-act="no-notes" data-id="${m.id}">No notes needed</button>` : ''}
+        <button class="btn sm" data-act="paste" data-id="${m.id}">${m.notes_raw ? 'Re-paste' : 'Paste notes'}</button>
+      </div>
+      ${m.notes_summary ? `<details ${m.notes_needs_confirmation ? 'open' : ''}><summary>Summary, decisions & action items</summary>
+        <div class="note-body">
+          <div><div class="sub-h">Summary</div><pre>${esc(m.notes_summary)}</pre></div>
+          <div><div class="sub-h">Decisions</div>${m.decisions.length ? `<ul>${m.decisions.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : '<div style="color:var(--muted)">None recorded</div>'}</div>
+          <div><div class="sub-h">Action items</div>${m.action_items.length ? `<ul>${m.action_items.map(a => `<li>${esc(a.title)} — <b>${esc(a.bucket === 'mine' ? 'Ari' : a.owner || a.assignee || '?')}</b>${a.due_at ? ` (${fmtD(a.due_at)})` : ''}</li>`).join('')}</ul>` : '<div style="color:var(--muted)">None</div>'}</div>
+        </div></details>` : ''}
+    </div>`).join('')}</div>` : `<div class="empty">No past meetings in the last 30 days.</div>`;
+}
+
+// ---------- actions ----------
+const findTask = id => state.tasks.find(t => t.id === id);
+async function patchTask(id, body, msg) {
+  await api(`/api/tasks/${id}`, { method: 'PATCH', body });
+  if (msg) toast(msg);
+  loadAll();
+}
+
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]');
+  if (el && el.tagName !== 'SELECT') {
+    const id = Number(el.dataset.id), act = el.dataset.act;
+    try {
+      if (act === 'done') await patchTask(id, { status: 'done' }, 'Marked done');
+      else if (act === 'snooze') await patchTask(id, { snooze_days: 1 }, 'Snoozed by 1 day');
+      else if (act === 'to-notmine') {
+        const owner = prompt('Who owns this?', '');
+        if (owner) await patchTask(id, { bucket: 'not_mine', owner }, `Moved to Not My Job (${owner})`);
+      }
+      else if (act === 'to-mine') await patchTask(id, { bucket: 'mine' }, 'Moved to My Job');
+      else if (act === 'confirm') await patchTask(id, { confirm_ai: true }, 'Thanks — marked as reviewed');
+      else if (act === 'wrong') { const box = $('#wrong-' + id); box.hidden = !box.hidden; }
+      else if (act === 'override') {
+        const box = $('#wrong-' + id), v = f => box.querySelector(`[data-field=${f}]`).value.trim();
+        const bucket = v('bucket');
+        if (bucket === 'not_mine' && !v('owner')) return toast('Add the owner', true);
+        await patchTask(id, { bucket, owner: bucket === 'not_mine' ? v('owner') : undefined, override_note: v('note') || undefined }, 'Saved — the AI will learn from this');
+      }
+      else if (act === 'chase') {
+        const t = findTask(id);
+        await navigator.clipboard.writeText(t.chase_message);
+        toast('Chase message copied');
+      }
+      else if (act === 'email-replied') { await api(`/api/inbox/${id}`, { method: 'PATCH', body: { status: 'replied' } }); loadAll(); }
+      else if (act === 'email-archive') { await api(`/api/inbox/${id}`, { method: 'PATCH', body: { status: 'archived' } }); loadAll(); }
+      else if (act === 'no-notes') { await api(`/api/meetings/${id}`, { method: 'PATCH', body: { no_notes_needed: true } }); loadAll(); }
+      else if (act === 'confirm-match') { await api(`/api/meetings/${id}`, { method: 'PATCH', body: { confirm_match: true } }); loadAll(); }
+      else if (act === 'paste') openNotes(id);
+      else if (act === 'prep') {
+        const m = state.upcoming.find(x => x.id === id);
+        const note = prompt(`Prep note for "${m.title}"`, m.prep_note || '');
+        if (note !== null) { await api(`/api/meetings/${id}`, { method: 'PATCH', body: { prep_note: note } }); loadAll(); }
+      }
+    } catch (err) { toast(err.message, true); }
+  }
+  if (e.target.matches('[data-close]') || e.target.classList.contains('backdrop')) closeModals();
+});
+
+document.addEventListener('change', async e => {
+  if (e.target.dataset.act === 'status') {
+    try { await patchTask(Number(e.target.dataset.id), { status: e.target.value }); } catch (err) { toast(err.message, true); }
+  }
+});
+
+// ---------- modals ----------
+function openModal(id) { $(id).classList.add('open'); }
+function closeModals() { document.querySelectorAll('.backdrop').forEach(b => b.classList.remove('open')); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
+
+// Add task
+let addPeople = [];
+function renderPeopleTags() {
+  const input = $('#people-input');
+  $('#people-tags').querySelectorAll('.tag').forEach(t => t.remove());
+  for (const [i, p] of addPeople.entries()) {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.innerHTML = `${esc(p)} <button type="button" aria-label="Remove">×</button>`;
+    tag.querySelector('button').onclick = () => { addPeople.splice(i, 1); renderPeopleTags(); };
+    $('#people-tags').insertBefore(tag, input);
+  }
+}
+$('#people-input').addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ',') && e.target.value.trim()) {
+    e.preventDefault();
+    addPeople.push(e.target.value.trim().replace(/,$/, ''));
+    e.target.value = '';
+    renderPeopleTags();
+  } else if (e.key === 'Backspace' && !e.target.value && addPeople.length) { addPeople.pop(); renderPeopleTags(); }
+});
+$('#people-input').addEventListener('change', e => {
+  if (state.people.some(p => p.name === e.target.value)) { addPeople.push(e.target.value); e.target.value = ''; renderPeopleTags(); }
+});
+$('#add-btn').onclick = () => {
+  $('#add-form').reset(); addPeople = []; renderPeopleTags();
+  openModal('#m-add'); setTimeout(() => $('#add-form [name=title]').focus(), 50);
+};
+$('#add-form').onsubmit = async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const pending = $('#people-input').value.trim();
+  if (pending) addPeople.push(pending);
+  const date = f.get('date'), time = f.get('time') || '10:00';
+  const btn = e.target.querySelector('[type=submit]');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const { message } = await api('/api/tasks', { method: 'POST', body: {
+      title: f.get('title'), due_at: date ? `${date}T${time}:00+05:30` : null, people: addPeople,
+      project: f.get('project') || undefined, notes: f.get('notes'), bucket: f.get('bucket') || undefined,
+    } });
+    closeModals(); toast(message); loadAll();
+  } catch (err) { toast(err.message, true); }
+  finally { btn.disabled = false; btn.textContent = 'Save'; }
+};
+
+// Paste notes
+function openNotes(meetingId) {
+  $('#notes-text').value = '';
+  const opt = meetingId ? state.past.find(m => m.id === meetingId) : null;
+  if (meetingId && !$(`#notes-meeting option[value="${meetingId}"]`)) {
+    $('#notes-meeting').insertAdjacentHTML('beforeend', `<option value="${meetingId}">${esc(opt?.title || 'Meeting ' + meetingId)}</option>`);
+  }
+  $('#notes-meeting').value = meetingId || '';
+  $('#notes-title').textContent = opt ? `Paste notes — ${opt.title}` : 'Paste Granola notes';
+  openModal('#m-notes'); setTimeout(() => $('#notes-text').focus(), 50);
+}
+$('#paste-any').onclick = () => openNotes(null);
+$('#notes-form').onsubmit = async e => {
+  e.preventDefault();
+  const id = $('#notes-meeting').value;
+  const btn = $('#notes-submit');
+  btn.disabled = true; btn.textContent = 'Processing… (can take ~30s)';
+  try {
+    const m = await api(id ? `/api/meetings/${id}/notes` : '/api/meetings/notes', { method: 'POST', body: { notes: $('#notes-text').value } });
+    closeModals();
+    toast(`Notes saved to "${m.title}" — ${m.action_items.length} action item(s)${m.notes_needs_confirmation ? '. Please confirm the meeting match.' : ''}`);
+    loadAll();
+  } catch (err) { toast(err.message, true); }
+  finally { btn.disabled = false; btn.textContent = 'Process notes'; }
+};
+
+// Settings
+$('#settings-btn').onclick = async () => {
+  try {
+    const s = await api('/api/settings');
+    const f = $('#settings-form');
+    for (const k of ['morning_brief', 'tomorrow_preview', 'follow_up_chase', 'weekly_wrap']) f[k].value = s.reminder_times[k];
+    f.sender_blocklist.value = s.sender_blocklist.join('\n');
+    f.key_meeting_keywords.value = s.key_meeting_keywords.join('\n');
+    f.projects.value = s.projects.join('\n');
+    f.roles.value = JSON.stringify(s.roles, null, 2);
+    openModal('#m-settings');
+  } catch (err) { toast(err.message, true); }
+};
+$('#settings-form').onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target, lines = v => v.split('\n').map(s => s.trim()).filter(Boolean);
+  let roles;
+  try { roles = JSON.parse(f.roles.value); } catch { return toast('Roles is not valid JSON', true); }
+  try {
+    await api('/api/settings', { method: 'PUT', body: {
+      reminder_times: Object.fromEntries(['morning_brief', 'tomorrow_preview', 'follow_up_chase', 'weekly_wrap'].map(k => [k, f[k].value.trim()])),
+      sender_blocklist: lines(f.sender_blocklist.value), key_meeting_keywords: lines(f.key_meeting_keywords.value),
+      projects: lines(f.projects.value), roles,
+    } });
+    closeModals(); toast('Settings saved'); loadPeople(); loadAll();
+  } catch (err) { toast(err.message, true); }
+};
+$('#logout-btn').onclick = () => fetch('/logout', { method: 'POST' }).then(() => location.href = '/login');
+
+// Sync now
+$('#sync-btn').onclick = async () => {
+  $('#sync-text').textContent = 'Syncing…';
+  try {
+    const [cal, mail] = await Promise.all([api('/api/sync/calendar', { method: 'POST' }), api('/api/sync/gmail', { method: 'POST' })]);
+    const msg = [cal, mail].map(r => r.error || r.skipped).filter(Boolean);
+    toast(msg.length ? msg.join(' · ') : `Synced: ${mail.processed ?? 0} new email(s), ${cal.events ?? 0} event(s)`, !!(cal.error || mail.error));
+  } catch (err) { toast(err.message, true); }
+  loadAll();
+};
+
+// Filters
+let qTimer;
+$('#f-q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(loadAll, 250); });
+for (const id of ['#f-project', '#f-priority', '#f-status', '#inbox-reply-only']) $(id).addEventListener('change', loadAll);
+
+loadPeople();
+loadAll();
+setInterval(loadAll, 2 * 60e3);
+</script>
+</body>
+</html>

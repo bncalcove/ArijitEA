@@ -1,0 +1,18 @@
+{
+  "me": {
+    "name": "Ari",
+    "email": "bnc@alcoverealty.in",
+    "role": "EDIT ME: Ari's role/title",
+    "owns": "EDIT ME: what Ari personally decides, signs off, or delivers"
+  },
+  "company_domains": ["alcoverealty.in"],
+  "people": [
+    {
+      "name": "Example Person",
+      "email": "example@alcoverealty.in",
+      "team": "Sales",
+      "role": "Sales Head",
+      "owns": "Site visits, booking follow-ups, channel partner payouts"
+    }
+  ]
+}
