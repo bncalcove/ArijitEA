@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { getSettings, putSettings, readRoles, writeRoles, readProjects, writeProjects } from '../db.js';
 import { jobTable, reload } from '../jobs/scheduler.js';
-import { secretStatus, saveSecrets, passwordFromEnv, verifyPassword, setPassword } from '../config.js';
+import { secretStatus, saveSecrets, passwordFromEnv, verifyPassword, setPassword, granolaToken } from '../config.js';
+import { sendWhatsApp } from '../integrations/whatsapp.js';
 import { resetGoogle } from '../integrations/google.js';
 import { resetAnthropic, aiProvider } from '../integrations/anthropic.js';
 
@@ -41,13 +42,39 @@ r.put('/settings', (req, res) => {
 });
 
 // Integration keys entered on the dashboard. Values are never returned in full.
-r.get('/connections', (req, res) => res.json({ keys: secretStatus(), ai_provider: aiProvider() }));
+function connections(req, extra = {}) {
+  const base = req.app.locals.publicBase(req);
+  return {
+    keys: secretStatus(),
+    ai_provider: aiProvider(),
+    google_redirect_uri: process.env.GOOGLE_REDIRECT_URI || `${base}/oauth2callback`,
+    granola_webhook_url: `${base}/hooks/granola/${granolaToken()}`,
+    ...extra,
+  };
+}
+
+r.get('/connections', (req, res) => res.json(connections(req)));
 
 r.put('/connections', (req, res) => {
   const changed = saveSecrets(req.body || {});
   if (changed.some(k => k.startsWith('GOOGLE_'))) resetGoogle();
   if (changed.includes('ANTHROPIC_API_KEY')) resetAnthropic();
-  res.json({ keys: secretStatus(), ai_provider: aiProvider(), changed });
+  res.json(connections(req, { changed }));
+});
+
+r.post('/connections/granola/rotate', (req, res) => {
+  granolaToken({ rotate: true });
+  res.json(connections(req));
+});
+
+r.post('/connections/test/whatsapp', async (req, res) => {
+  if (!process.env.WHATSAPP_ENDPOINT) return res.status(400).json({ error: 'Set the WhatsApp endpoint first' });
+  try {
+    const r2 = await sendWhatsApp(`✅ Test from Ari's EA — WhatsApp is connected. (${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })})`);
+    res.json(r2);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 r.put('/password', (req, res) => {

@@ -1,4 +1,4 @@
 {
   "_comment": "Initial dashboard password (scrypt hash only). Change it in Settings; the new one is stored in the app database.",
-  "password_hash": "6490e70575635167cdde32846b2405db:c44504aa33c4f08b555c03bd83d6ad3e06244356e2e521a553973d5b0e17fbb7f90ed81d913e8bd25a304186f2f456ef503cf6c2daa629ad882da4cb8b180d60"
+  "password_hash": "3a6e944d1119cbe84099b15fe25a188e:0ccb5f64b75075b6c12a980b7af414c10d35bfcb09956f0cd1e492662bd258b4f0cc98c10709963070cf42a56c123f1c27faceed525ee0cac4f706edc5956659"
 }

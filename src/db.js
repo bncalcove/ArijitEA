@@ -147,6 +147,38 @@ const MIGRATIONS = [
     value TEXT NOT NULL
   );
   `,
+  `
+  -- Allow notes pushed by the Granola webhook (notes_source = 'webhook').
+  CREATE TABLE meetings_v3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    calendar_event_id TEXT UNIQUE,
+    title TEXT,
+    start_at TEXT,
+    end_at TEXT,
+    platform TEXT CHECK (platform IN ('meet','zoom','teams','other')),
+    join_link TEXT,
+    organizer TEXT,
+    attendees TEXT NOT NULL DEFAULT '[]',
+    rsvp_status TEXT,
+    needs_response INTEGER NOT NULL DEFAULT 0,
+    prep_note TEXT,
+    is_key INTEGER NOT NULL DEFAULT 0,
+    cancelled INTEGER NOT NULL DEFAULT 0,
+    notes_source TEXT CHECK (notes_source IN ('paste','email','webhook')),
+    notes_received_at TEXT,
+    notes_raw TEXT,
+    notes_summary TEXT,
+    notes_needs_confirmation INTEGER NOT NULL DEFAULT 0,
+    no_notes_needed INTEGER NOT NULL DEFAULT 0,
+    decisions TEXT NOT NULL DEFAULT '[]',
+    action_items TEXT NOT NULL DEFAULT '[]',
+    processed_at TEXT
+  );
+  INSERT INTO meetings_v3 (id, calendar_event_id, title, start_at, end_at, platform, join_link, organizer, attendees, rsvp_status, needs_response, prep_note, is_key, cancelled, notes_source, notes_received_at, notes_raw, notes_summary, notes_needs_confirmation, no_notes_needed, decisions, action_items, processed_at) SELECT id, calendar_event_id, title, start_at, end_at, platform, join_link, organizer, attendees, rsvp_status, needs_response, prep_note, is_key, cancelled, notes_source, notes_received_at, notes_raw, notes_summary, notes_needs_confirmation, no_notes_needed, decisions, action_items, processed_at FROM meetings;
+  DROP TABLE meetings;
+  ALTER TABLE meetings_v3 RENAME TO meetings;
+  CREATE INDEX idx_meetings_start ON meetings(start_at);
+  `,
 ];
 
 function migrate() {

@@ -298,8 +298,6 @@ code { background: #eef0f4; padding: 1px 5px; border-radius: 4px; font-size: 12p
       <h4 class="set-h">Connections</h4>
       <div class="hint" style="margin-top:-6px">Keys are stored in the app database, not in git. Leave a field blank to keep its current value. <span id="ai-provider"></span></div>
       <div id="connections"></div>
-      <div class="hint">Google: create an OAuth client of type <b>Web application</b> in Google Cloud Console, with redirect URI <code id="redirect-uri"></code>. Save the client ID and secret here, then
-        <a href="auth/google" class="btn sm gold" id="google-connect">Connect Google</a></div>
 
       <h4 class="set-h">Change password</h4>
       <div class="row2">
@@ -673,27 +671,59 @@ $('#notes-form').onsubmit = async e => {
 };
 
 // Settings
-const CONN_LABELS = {
-  ANTHROPIC_API_KEY: 'Anthropic API key (optional)',
-  GOOGLE_CLIENT_ID: 'Google client ID', GOOGLE_CLIENT_SECRET: 'Google client secret',
-  GOOGLE_REDIRECT_URI: 'Google redirect URI (optional)', GOOGLE_REFRESH_TOKEN: 'Google refresh token (auto)',
-  WHATSAPP_ENDPOINT: 'WhatsApp endpoint URL', WHATSAPP_AUTH_TOKEN: 'WhatsApp auth token', WHATSAPP_TO_NUMBER: 'WhatsApp to number',
-};
-const AI_LABEL = { api: 'AI: Anthropic API key', 'claude-cli': 'AI: Claude Code login on this machine', off: 'AI: off (rule-based)' };
+const CONN_GROUPS = [
+  { title: 'Gmail + Google Calendar', keys: {
+    GOOGLE_CLIENT_ID: 'Client ID', GOOGLE_CLIENT_SECRET: 'Client secret',
+    GOOGLE_REDIRECT_URI: 'Redirect URI (optional override)', GOOGLE_REFRESH_TOKEN: 'Refresh token (filled by Connect)',
+  } },
+  { title: 'WhatsApp', keys: {
+    WHATSAPP_ENDPOINT: 'Endpoint URL', WHATSAPP_AUTH_TOKEN: 'Access / auth token', WHATSAPP_TO_NUMBER: "Ari's number (e.g. 9198…)",
+    WHATSAPP_TEMPLATE: 'Template name (Meta, optional)', WHATSAPP_TEMPLATE_LANG: 'Template language (default en)',
+  } },
+  { title: 'AI', keys: { ANTHROPIC_API_KEY: 'Anthropic API key (optional)' } },
+];
+const AI_LABEL = { api: 'Anthropic API key', 'claude-cli': 'Claude Code login on this machine', off: 'off (rule-based)' };
 const connClear = new Set();
-function renderConnections({ keys, ai_provider }) {
+function connRow(k, label, s) {
+  const state = s.source === 'env' ? '<span class="badge b-muted" title="Set on the server; edit it there">server env</span>'
+    : s.set ? `<span class="badge b-ok">set</span> <button type="button" class="btn link" data-clear="${k}">clear</button>` : '<span class="badge b-pending">not set</span>';
+  return `<div class="conn"><label for="c-${k}">${label}</label>
+    <input id="c-${k}" data-key="${k}" type="${/SECRET|TOKEN|API_KEY/.test(k) && k !== 'GOOGLE_REDIRECT_URI' ? 'password' : 'text'}" autocomplete="off"
+      placeholder="${esc(s.value || '')}" ${s.source === 'env' ? 'disabled' : ''}>
+    <span class="state">${state}</span></div>`;
+}
+function renderConnections(c) {
   connClear.clear();
-  $('#ai-provider').textContent = '· ' + (AI_LABEL[ai_provider] || ai_provider);
-  $('#redirect-uri').textContent = keys.GOOGLE_REDIRECT_URI.value || `${location.origin}${BASE}/oauth2callback`;
-  $('#connections').innerHTML = Object.entries(CONN_LABELS).map(([k, label]) => {
-    const s = keys[k];
-    const state = s.source === 'env' ? '<span class="badge b-muted" title="Set on the server; edit it there">server env</span>'
-      : s.set ? `<span class="badge b-ok">set</span> <button type="button" class="btn link" data-clear="${k}">clear</button>` : '<span class="badge b-pending">not set</span>';
-    return `<div class="conn"><label for="c-${k}">${label}</label>
-      <input id="c-${k}" data-key="${k}" type="${/SECRET|TOKEN|API_KEY/.test(k) ? 'password' : 'text'}" autocomplete="off"
-        placeholder="${esc(s.value || '')}" ${s.source === 'env' ? 'disabled' : ''}>
-      <span class="state">${state}</span></div>`;
-  }).join('');
+  const { keys } = c;
+  $('#ai-provider').textContent = '· AI: ' + (AI_LABEL[c.ai_provider] || c.ai_provider);
+  const googleOk = keys.GOOGLE_REFRESH_TOKEN.set;
+  const extra = {
+    'Gmail + Google Calendar': `<div class="hint">In Google Cloud Console add this <b>Authorized redirect URI</b>: <code>${esc(c.google_redirect_uri)}</code>.
+      Save the client ID and secret, then
+      <a href="auth/google" class="btn sm gold">${googleOk ? 'Reconnect' : 'Connect'} Google</a>
+      ${googleOk ? '<span class="badge b-ok">connected</span>' : ''}</div>`,
+    WhatsApp: `<div class="hint">Meta Cloud API endpoint: <code>https://graph.facebook.com/v21.0/&lt;PHONE_NUMBER_ID&gt;/messages</code>.
+      <button type="button" class="btn sm" id="wa-test">Send test message</button></div>`,
+  };
+  $('#connections').innerHTML = CONN_GROUPS.map(g => `<div class="sub-h" style="margin:10px 0 6px">${g.title}</div>
+    ${Object.entries(g.keys).map(([k, label]) => connRow(k, label, keys[k])).join('')}${extra[g.title] || ''}`).join('') + `
+    <div class="sub-h" style="margin:10px 0 6px">Granola meeting notes</div>
+    <div class="hint">Automatic: in Zapier/Make, use the trigger "Granola → note added" and the action "Webhooks → POST" to this URL, sending <code>title</code> and <code>notes</code> as JSON.</div>
+    <div class="conn"><label>Webhook URL (secret)</label><input readonly value="${esc(c.granola_webhook_url)}" id="granola-url">
+      <span class="state"><button type="button" class="btn sm" id="granola-copy">Copy</button> <button type="button" class="btn link" id="granola-rotate">new link</button></span></div>
+    <div class="hint">Or email notes with <code>[EA-NOTES]</code> in the subject (needs Gmail connected), or use <b>Paste notes</b> on the dashboard.</div>`;
+
+  $('#wa-test').onclick = async () => {
+    try {
+      const r = await api('/api/connections/test/whatsapp', { method: 'POST' });
+      toast(r.dryRun ? 'No endpoint set — message printed to server log' : `Test message sent (${r.mode})`);
+    } catch (err) { toast(err.message, true); }
+  };
+  $('#granola-copy').onclick = () => navigator.clipboard.writeText($('#granola-url').value).then(() => toast('Webhook URL copied'));
+  $('#granola-rotate').onclick = async () => {
+    if (!confirm('Create a new webhook link? The old one stops working, so update Zapier/Make.')) return;
+    renderConnections(await api('/api/connections/granola/rotate', { method: 'POST' }));
+  };
 }
 document.addEventListener('click', e => {
   const k = e.target.dataset?.clear;

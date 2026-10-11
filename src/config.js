@@ -12,10 +12,10 @@ import { db, ROOT } from './db.js';
 export const SECRET_KEYS = [
   'ANTHROPIC_API_KEY',
   'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI', 'GOOGLE_REFRESH_TOKEN',
-  'WHATSAPP_ENDPOINT', 'WHATSAPP_AUTH_TOKEN', 'WHATSAPP_TO_NUMBER',
+  'WHATSAPP_ENDPOINT', 'WHATSAPP_AUTH_TOKEN', 'WHATSAPP_TO_NUMBER', 'WHATSAPP_TEMPLATE', 'WHATSAPP_TEMPLATE_LANG',
 ];
 // Values that are not sensitive and can be shown back in full.
-const SHOW_IN_FULL = new Set(['GOOGLE_CLIENT_ID', 'GOOGLE_REDIRECT_URI', 'WHATSAPP_ENDPOINT', 'WHATSAPP_TO_NUMBER']);
+const SHOW_IN_FULL = new Set(['GOOGLE_CLIENT_ID', 'GOOGLE_REDIRECT_URI', 'WHATSAPP_ENDPOINT', 'WHATSAPP_TO_NUMBER', 'WHATSAPP_TEMPLATE', 'WHATSAPP_TEMPLATE_LANG']);
 
 const fromEnv = new Set(SECRET_KEYS.filter(k => process.env[k]));
 
@@ -61,6 +61,13 @@ export function sessionSecret() {
   let s = getRow('_session_secret');
   if (!s) { s = crypto.randomBytes(32).toString('hex'); setRow('_session_secret', s); }
   return s;
+}
+
+/** Secret for the Granola webhook URL (Zapier/Make → POST /hooks/granola/<token>). */
+export function granolaToken({ rotate = false } = {}) {
+  let t = rotate ? null : getRow('_granola_token');
+  if (!t) { t = crypto.randomBytes(18).toString('base64url'); setRow('_granola_token', t); }
+  return t;
 }
 
 // ---------- dashboard password ----------

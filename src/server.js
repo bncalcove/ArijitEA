@@ -6,7 +6,10 @@ import path from 'node:path';
 import { ROOT, DATA_DIR } from './db.js';
 import {
   sessionSecret, passwordConfigured, verifyPassword, setPassword, setupCodeFor, consumeSetupCode, saveSecrets,
+  granolaToken, safeEqual,
 } from './config.js';
+import { processNotes } from './jobs/meetingNotes.js';
+import { normaliseNotes } from './integrations/granola.js';
 import tasksRoutes from './routes/tasks.js';
 import inboxRoutes from './routes/inbox.js';
 import meetingsRoutes from './routes/meetings.js';
@@ -47,8 +50,33 @@ app.use((req, res, next) => {
   next();
 });
 
+/** Public URL of the app as the browser sees it, e.g. https://employees.alcoverealty.in/p/ea */
+function publicBase(req) {
+  const host = req.get('host') || 'localhost';
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
+  return `${local ? req.protocol : 'https'}://${host}${BASE}`;
+}
+app.locals.publicBase = publicBase;
+
 // Unauthenticated liveness probe for the deploy system.
 app.get('/healthz', (req, res) => res.type('text').send('ok'));
+
+// ---- Granola webhook (Zapier/Make "new note" → POST here). Auth = secret token in the URL. ----
+const pick = (o, keys) => keys.map(k => o?.[k]).find(v => typeof v === 'string' && v.trim());
+app.post('/hooks/granola/:token', (req, res) => {
+  if (!safeEqual(req.params.token, granolaToken())) return res.status(403).json({ error: 'Bad token' });
+  const b = req.body || {};
+  const notes = normaliseNotes(pick(b, ['notes', 'content', 'markdown', 'text', 'body', 'note', 'summary', 'enhanced_notes']) || '');
+  if (!notes) return res.status(400).json({ error: 'No notes text found (send it as "notes" or "content")' });
+  const title = pick(b, ['title', 'meeting_title', 'name', 'subject']) || '';
+  const when = pick(b, ['start_time', 'meeting_date', 'date', 'created_at', 'createdAt']);
+  const receivedAt = when && !isNaN(new Date(when)) ? new Date(when).toISOString() : new Date().toISOString();
+  // Reply right away; AI processing can take longer than Zapier waits.
+  res.status(202).json({ ok: true, queued: true });
+  processNotes({ text: title ? `# ${title}\n\n${notes}` : notes, source: 'webhook', subject: title, receivedAt })
+    .then(m => console.log(`[granola] notes saved to "${m.title}" (${m.action_items.length} action items)`))
+    .catch(e => console.error('[granola] processing failed:', e.message));
+});
 
 // ---- auth ----
 const attempts = new Map(); // ip -> {count, until}
@@ -116,7 +144,7 @@ app.use((req, res, next) => {
 });
 
 // ---- Google OAuth: Settings → Connections → "Connect Google" ----
-const redirectUri = req => process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}${BASE}/oauth2callback`;
+const redirectUri = req => process.env.GOOGLE_REDIRECT_URI || `${publicBase(req)}/oauth2callback`;
 
 app.get('/auth/google', (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
